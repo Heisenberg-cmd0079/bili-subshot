@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Required Notice: Copyright 2026 Heisenberg-cmd0079
+# Licensed under the PolyForm Noncommercial License 1.0.0 (see LICENSE).
+# 禁止商业使用；需要商业授权请联系作者。
 """
 B站台词拼接核心模块
 ==================

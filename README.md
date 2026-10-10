@@ -5,7 +5,7 @@
 > Stitch hard-coded subtitles from a video segment into one long image — automatic subtitle-band detection, frame de-duplication, and vertical stitching. (Python + OpenCV + customtkinter)
 
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-PolyForm_Noncommercial_1.0.0-orange)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 [![tests](https://github.com/Heisenberg-cmd0079/bili-hardsub-stitcher/actions/workflows/tests.yml/badge.svg)](https://github.com/Heisenberg-cmd0079/bili-hardsub-stitcher/actions/workflows/tests.yml)
 
@@ -195,9 +195,30 @@ python -X utf8 tests_naming.py
 - 本仓库不包含任何视频内容、Cookie、账号凭证或密钥；下载的视频仅存放于使用者本机的临时目录。
 - 因使用本工具产生的一切后果由使用者自行承担，作者不承担任何责任。
 
-## 协议与致谢
+## 许可协议与致谢
 
-[MIT License](LICENSE) © 2026 Heisenberg-cmd0079
+**本项目的源码是公开的，但它不是 OSI 定义下的「开源项目」**——所用协议**禁止商业使用**。
+（OSI 的开源定义要求不得歧视任何使用领域，包括商业用途，所以「禁止商用」与「开源」在定义上互斥。
+这里如实说明，免得你按「开源」的预期来用它。）
+
+`Required Notice: Copyright 2026 Heisenberg-cmd0079`
+
+代码采用 [PolyForm Noncommercial License 1.0.0](LICENSE)
+（[官方说明](https://polyformproject.org/licenses/noncommercial/1.0.0)、含专利授权条款）。
+
+| 可以 | 不可以 |
+| --- | --- |
+| 个人学习、研究、试用、私人娱乐、业余爱好 | **任何商业用途**（把它或其修改版用于收费产品、收费服务、商业项目） |
+| 自己修改、自己用 | 把修改版拿去卖、拿去变现 |
+| 慈善机构、教育机构、公共科研、公共安全/卫生、环保、政府机构使用 | 再授权（sublicense）或转让许可给别人 |
+| 分发副本（需一并附带本协议与上面那行 Required Notice） | 声称这是哔哩哔哩官方项目、或暗示获得其背书 |
+
+**需要商业授权**请通过 Issues 联系作者——作者是版权人，可以另行授权（也可以自己商用）。
+
+### 关于内容权利（与上面的代码许可无关）
+
+上面的许可**只针对代码**，不授予任何第三方视频、字幕、音乐、人物图像或商标的使用权。
+请仅处理你自行创作或已取得相应授权的内容——**能观看不等于取得授权**。
 
 感谢这些开源项目：[yt-dlp](https://github.com/yt-dlp/yt-dlp)、[OpenCV](https://opencv.org/)、
 [customtkinter](https://github.com/TomSchimansky/CustomTkinter)、[Pillow](https://python-pillow.org/)、[NumPy](https://numpy.org/)。
