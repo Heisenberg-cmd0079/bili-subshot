@@ -10,7 +10,7 @@ B站台词拼接 —— 命令行版
     python -X utf8 bilibili_subtitle_stitcher.py ^
         --url "https://www.bilibili.com/video/BV1qnuq6dEga/" ^
         --start 00:21:41 --end 00:22:35 ^
-        --out "D:\\导出" --name 台词拼接
+        --out "output" --name 台词拼接
 
 不带参数运行会使用 config.json 里的设置（与图形界面共用同一份配置）。
 """

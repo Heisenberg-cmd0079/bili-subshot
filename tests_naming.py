@@ -36,15 +36,15 @@ def eq(label, got, want):
 
 
 SAMPLE = ("【百K亚煞极电表神明，刷神明最快打法】"
-          "https://www.bilibili.com/video/BV1aBhR69Ef6?vd_source=14d51abe2563768e9569d025bf3a3d98")
+          "https://www.bilibili.com/video/BV1aBhR69Ef6?vd_source=example")
 
-# 实测反馈（BV1yThazdENF）：客户端分享的标题**自己带一层括号**，
-# 旧版用 [^【】]{1,200}? 配不上外层，只抠出内层「小岛秀夫·补完计划 第1话」，
+# 实测反馈：客户端分享的标题**自己带一层括号**（副标题），
+# 旧版用 [^【】]{1,200}? 配不上外层，只抠出内层的「第一话」，
 # 用户看到的现象是「粘进网址栏的长标题被截断了」。
-NESTED = ("【拍电影写小说一事无成，小岛秀夫有多废柴【小岛秀夫·补完计划 第1话】】"
-          "https://www.bilibili.com/video/BV1yThazdENF?vd_source=14d51abe2563768e9569d025bf3a3d98")
-NESTED_TITLE = "拍电影写小说一事无成，小岛秀夫有多废柴【小岛秀夫·补完计划 第1话】"
-NESTED_URL = "https://www.bilibili.com/video/BV1yThazdENF"
+NESTED = ("【示例：某视频的完整标题【第一话】】"
+          "https://www.bilibili.com/video/BV1xx411c7mD?vd_source=example")
+NESTED_TITLE = "示例：某视频的完整标题【第一话】"
+NESTED_URL = "https://www.bilibili.com/video/BV1xx411c7mD"
 
 
 def test_parse_link_input():
