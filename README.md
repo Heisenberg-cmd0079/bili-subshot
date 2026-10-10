@@ -32,25 +32,20 @@
 
 ## 快速开始
 
+### Windows：双击 `一键启动.bat`
+
+第一次运行会在**项目目录里**装好独立 Python 3.12、五个依赖，然后直接打开界面。不写注册表、不改 PATH、不装到 Program Files——不想要了删掉 `.venv` 和 `.tools` 两个文件夹就干净了。首次运行需要下载约 200 MB（用到系统自带的 `curl` 和 `tar`，Windows 10 1803 以上都有）。
+
+### 手动安装
+
 ```bash
 git clone https://github.com/Heisenberg-cmd0079/bili-subshot.git
 cd bili-subshot
 pip install -r requirements.txt
-```
-
-还需要 **ffmpeg**（yt-dlp 用它切片）：
-
-| 平台 | 安装 |
-| --- | --- |
-| Windows | `winget install ffmpeg` |
-| macOS | `brew install ffmpeg` |
-| Ubuntu / Debian | `sudo apt install ffmpeg` |
-
-启动图形界面：
-
-```bash
 python gui_app.pyw        # Windows 上也可以用 pythonw，避免弹出控制台
 ```
+
+**ffmpeg 不用自己装**：`imageio-ffmpeg` 会随上面的依赖带一份二进制，程序在 PATH 里找不到 ffmpeg 时就直接用它（实测：PATH 里没有 ffmpeg 也能正常切片合并）。已经装过 ffmpeg 的话，程序优先用你那个。
 
 ## 图形界面用法
 

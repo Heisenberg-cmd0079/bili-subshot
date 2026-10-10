@@ -436,6 +436,23 @@ def clear_cache(url: str = "", start: str = "", end: str = "") -> None:
 # 1. 下载片段
 # --------------------------------------------------------------------------
 
+def _find_ffmpeg(log=None):
+    """找可用的 ffmpeg：PATH 优先，其次用 imageio-ffmpeg 随包带的那个。都没有返回 None。"""
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.exists(exe):
+            if log:
+                log("· PATH 里没有 ffmpeg，改用 imageio-ffmpeg 自带的二进制")
+            return exe
+    except Exception:
+        pass
+    return None
+
+
 def download_segment(url, start_time, end_time, work_dir, log=print, cookies_browser="无"):
     """下载 [start, end] 片段，返回视频文件路径（已存在则直接复用）。"""
     os.makedirs(work_dir, exist_ok=True)
@@ -456,6 +473,12 @@ def download_segment(url, start_time, end_time, work_dir, log=print, cookies_bro
     ]
     if cookies_browser and cookies_browser != "无":
         cmd += ["--cookies-from-browser", cookies_browser.lower()]
+    ffmpeg_exe = _find_ffmpeg(log=log)
+    if ffmpeg_exe:
+        cmd += ["--ffmpeg-location", ffmpeg_exe]
+    else:
+        log("! 没找到 ffmpeg：下载切片会失败。装一个（Windows 用 winget install ffmpeg），"
+            "或 pip install imageio-ffmpeg 让它随包提供")
     cmd.append(url)
 
     proc = subprocess.Popen(

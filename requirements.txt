@@ -3,3 +3,5 @@ numpy>=1.24
 Pillow>=10.0
 customtkinter>=5.2
 yt-dlp>=2024.1.1
+# 自带的 ffmpeg 二进制：PATH 里没有 ffmpeg 时由程序直接用它，省掉手动安装
+imageio-ffmpeg>=0.5
