@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
-[![tests](https://github.com/Heisenberg-cmd0079/bilibili-subtitle-stitcher/actions/workflows/tests.yml/badge.svg)](https://github.com/Heisenberg-cmd0079/bilibili-subtitle-stitcher/actions/workflows/tests.yml)
+[![tests](https://github.com/Heisenberg-cmd0079/bili-hardsub-stitcher/actions/workflows/tests.yml/badge.svg)](https://github.com/Heisenberg-cmd0079/bili-hardsub-stitcher/actions/workflows/tests.yml)
 
 ![主界面](docs/images/gui.png)
 
@@ -28,8 +28,8 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/Heisenberg-cmd0079/bilibili-subtitle-stitcher.git
-cd bilibili-subtitle-stitcher
+git clone https://github.com/Heisenberg-cmd0079/bili-hardsub-stitcher.git
+cd bili-hardsub-stitcher
 pip install -r requirements.txt
 ```
 
