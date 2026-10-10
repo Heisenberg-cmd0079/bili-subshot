@@ -9,12 +9,17 @@ set "PY=%VENV%\Scripts\python.exe"
 set "PYW=%VENV%\Scripts\pythonw.exe"
 set "PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple"
 set "UVEXE="
+REM 把 uv 的缓存和 Python 都关在项目目录里：不往 %LOCALAPPDATA% / %APPDATA% 写东西，
+REM 也避免别处已有的 uv 缓存权限问题把安装卡死。
+set "UV_CACHE_DIR=%~dp0.tools\uv-cache"
+set "UV_PYTHON_INSTALL_DIR=%~dp0.tools\python"
 
 if exist "%PY%" goto run
 
 echo.
 echo == 字幕长图 一键启动 ==
-echo 只在本项目目录里装 Python 和依赖，不改系统：不写注册表、不改 PATH、不装到 Program Files。
+echo 所有东西都装在本项目目录里：不装到 Program Files、不改 PATH、不动你已有的 Python、
+echo 不需要管理员权限。不想要了，直接删掉 .venv 和 .tools 两个文件夹即可。
 echo.
 
 echo [1/4] 检查 uv
@@ -23,7 +28,7 @@ if not errorlevel 1 set "UVEXE=uv"
 if defined UVEXE goto haveuv
 if exist ".tools\uv.exe" set "UVEXE=.tools\uv.exe"
 if defined UVEXE goto haveuv
-echo        下载 uv（约 30 MB，来自 github.com/astral-sh/uv）
+echo        下载 uv（约 15 MB，来自 github.com/astral-sh/uv）
 if not exist ".tools" mkdir ".tools"
 curl.exe -L --fail --retry 3 --connect-timeout 20 -o ".tools\uv.zip" "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
 if errorlevel 1 goto dlfail
@@ -32,7 +37,9 @@ if errorlevel 1 goto dlfail
 set "UVEXE=.tools\uv.exe"
 
 :haveuv
-echo [2/4] 安装独立 Python 3.12
+echo [2/4] 安装独立 Python 3.12（约 40 MB）
+REM --no-registry：不往 HKCU 写 Python 登记项（老版本 uv 不支持时忽略失败，下一步仍会自动下载）
+"%UVEXE%" python install 3.12 --no-registry
 "%UVEXE%" venv "%VENV%" --python 3.12
 if exist "%PY%" goto deps
 echo        独立 Python 没装上，改用系统已安装的 Python 重试
@@ -40,7 +47,7 @@ echo        独立 Python 没装上，改用系统已安装的 Python 重试
 if not exist "%PY%" goto pyfail
 
 :deps
-echo [3/4] 安装依赖（OpenCV / Pillow / customtkinter / yt-dlp / imageio-ffmpeg）
+echo [3/4] 安装依赖（OpenCV / Pillow / customtkinter / yt-dlp / imageio-ffmpeg，约 150 MB）
 "%UVEXE%" pip install --python "%PY%" -r requirements.txt --index-url %PIP_INDEX%
 if errorlevel 1 goto pipfail
 
