@@ -688,7 +688,7 @@ def _glyph_count(mask):
 def _detect_text_xrange(recs, min_px, w):
     """
     从所有采样掩码的列投影里推断字幕文字的横向范围（用于把画面里的其它白色
-    元素排除在去重比较之外）。返回 (x1, x2) 或 (0, w)。
+    元素排除在去重比较之外）。返回半开区间 (x1, x2) 或 (0, w)。
     """
     col = np.zeros(w, dtype=np.float32)
     used = 0
@@ -724,7 +724,7 @@ def _detect_text_xrange(recs, min_px, w):
     xb = max(s[1] for s in keep)
     if xb - xa < 40:
         return 0, w
-    return xa, xb
+    return xa, xb + 1
 
 
 def _grow_text_rows(dens, a, b, frac=0.25):
@@ -958,14 +958,31 @@ def extract_subtitle_frames(video_path, band_y1, band_y2, crop_y1=None, crop_y2=
 # 4. 拼接导出
 # --------------------------------------------------------------------------
 
+def prepare_cover(frame, crop_box):
+    """按最终半开裁切窗口保留首帧上方画面，与字幕条同宽。"""
+    cx1, _cy1, cx2, cy2 = crop_box
+    return frame.crop((cx1, 0, cx2, max(1, min(cy2, frame.height))))
+
+
+def plan_cover(frames, first_frame_full, cover_ok):
+    """仅在封面可用时替代首条字幕，取封面失败时保留全部字幕。"""
+    if first_frame_full and cover_ok:
+        return list(frames[1:]), True
+    return list(frames), False
+
+
 def stitch_images(crops, out_path, cover=None, separator=True,
                   sep_color=(38, 38, 40), log=print):
     """把字幕条垂直拼接成一张长图。cover 为可选的首帧完整画面。"""
-    if not crops:
+    if not crops and cover is None:
         raise RuntimeError("没有可拼接的字幕帧")
 
-    width, strip_h = crops[0].size
+    width = crops[0].width if crops else cover.width
+    strip_h = crops[0].height if crops else 0
     crops = [c for c in crops if c.size == (width, strip_h)]
+    if cover is not None and cover.width != width:
+        log(f"! 封面宽度 {cover.width}px 与字幕条 {width}px 不一致，已跳过封面")
+        cover = None
     cover_h = cover.size[1] if cover is not None else 0
     sep = 2 if separator else 0
 
@@ -1054,17 +1071,17 @@ def run_pipeline(cfg, log=print, progress=None):
     if progress:
         progress(0.85)
 
+    want_cover = bool(cfg.get("first_frame_full", True))
     cover = None
-    strips = frames
-    if cfg.get("first_frame_full", True) and len(frames) > 1:
-        cover = grab_frame(video_path, times[0])
-        if cover is not None:
-            # 字幕在画面下部时，首帧整图顺手裁掉字幕下方的空白/UI 区域，
-            # 免得那一条没字的画面被误当成“多拼了一条空字幕”
-            cy2 = crop[3]
-            if cy2 < cover.height and cy2 > 0.55 * cover.height:
-                cover = cover.crop((0, 0, cover.width, cy2))
-        strips = frames[1:]
+    if want_cover:
+        frame = grab_frame(video_path, times[0])
+        if frame is not None:
+            cover = prepare_cover(frame, crop)
+        else:
+            log("! 未能取得首帧封面，已保留首条字幕")
+    strips, use_cover = plan_cover(frames, want_cover, cover is not None)
+    if not use_cover:
+        cover = None
 
     name = (cfg.get("filename") or "").strip() or "bilibili_台词拼接"
     out_path = build_output_path(output_dir, name,

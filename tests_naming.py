@@ -24,6 +24,8 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, APP_DIR)
 
 import subtitle_core as sc
+import numpy as np
+from PIL import Image
 
 FAIL = []
 
@@ -121,6 +123,49 @@ def test_build_output_path():
            "bilibili_台词拼接_01.png")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_stitch_contract():
+    print("\n== stitch_contract ==")
+    frame = Image.new("RGB", (800, 400), "red")
+    frame.paste((0, 255, 0), (500, 0, 800, 400))
+    cover = sc.prepare_cover(frame, (500, 0, 800, 360))
+    eq("封面与字幕条同宽", cover.size, (300, 360))
+    eq("封面取自正确横坐标", cover.getpixel((0, 0)), (0, 255, 0))
+    eq("封面高度不超过首帧", sc.prepare_cover(frame, (500, 0, 800, 500)).size, (300, 400))
+    eq("封面成功才替代首句", sc.plan_cover(["f0", "f1", "f2"], True, True), (["f1", "f2"], True))
+    eq("封面失败不丢首句", sc.plan_cover(["f0", "f1", "f2"], True, False), (["f0", "f1", "f2"], False))
+    eq("单句只输出封面", sc.plan_cover(["f0"], True, True), ([], True))
+    eq("关闭封面保留首句", sc.plan_cover(["f0", "f1"], False, True), (["f0", "f1"], False))
+    with tempfile.TemporaryDirectory(prefix="zimu_stitch_") as tmp:
+        out = os.path.join(tmp, "test.png")
+        sc.stitch_images([], out, cover=Image.new("RGB", (300, 400)), log=lambda *_: None)
+        with Image.open(out) as result:
+            eq("仅封面可导出", result.size, (300, 400))
+        strip = Image.new("RGB", (300, 20), "blue")
+        sc.stitch_images([strip], out, cover=cover, log=lambda *_: None)
+        with Image.open(out) as result:
+            eq("封面加条带含分隔线", result.size, (300, 382))
+            eq("拼接后封面仍是正确区域", result.getpixel((0, 0)), (0, 255, 0))
+            eq("封面下方分隔线", result.getpixel((0, 360)), (38, 38, 40))
+            eq("首条位于分隔线下方", result.getpixel((0, 362)), (0, 0, 255))
+        logs = []
+        sc.stitch_images([strip], out, cover=Image.new("RGB", (800, 400)), log=logs.append)
+        with Image.open(out) as result:
+            eq("宽度不匹配时跳过封面", result.size, (300, 20))
+        eq("跳过封面有明确日志", any("已跳过封面" in msg for msg in logs), True)
+        try:
+            sc.stitch_images([], out, log=lambda *_: None)
+        except RuntimeError:
+            empty_rejected = True
+        else:
+            empty_rejected = False
+        eq("空条带且无封面必须失败", empty_rejected, True)
+    mask = np.zeros((10, 300), dtype=bool)
+    mask[:, 100:200] = True
+    recs = [(0, int(mask.sum()), np.packbits(mask, axis=1), mask.shape)]
+    eq("文字横向范围为半开区间", sc._detect_text_xrange(recs, 1, 300), (100, 200))
+    eq("无文字时返回完整半开范围", sc._detect_text_xrange([], 1, 300), (0, 300))
 
 
 def test_gui():
@@ -227,6 +272,7 @@ def test_gui():
 if __name__ == "__main__":
     test_parse_link_input()
     test_build_output_path()
+    test_stitch_contract()
     test_gui()
     print("\n结果：" + ("全部通过" if not FAIL else f"失败 {len(FAIL)} 项 -> {FAIL}"))
     sys.exit(1 if FAIL else 0)
