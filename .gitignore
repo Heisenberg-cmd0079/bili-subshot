@@ -1,0 +1,31 @@
+# ---- 个人配置与凭证（绝对不要提交）----
+config.json
+cookies.txt
+*.cookies
+SESSDATA*
+.env
+
+# ---- 运行产物 ----
+__pycache__/
+*.py[cod]
+output/
+*.mp4
+*.flv
+*.m4s
+*.ts
+
+# ---- 本地示例图（含 B 站视频画面，不入库）----
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+
+# ---- 待整理：个人成本与合规调研，暂不入库 ----
+/iOS上架调研与工作量评估.md
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

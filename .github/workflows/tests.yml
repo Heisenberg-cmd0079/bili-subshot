@@ -1,0 +1,26 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装系统依赖（tkinter + 虚拟显示）
+        run: sudo apt-get update && sudo apt-get install -y python3-tk xvfb
+
+      - name: 安装 Python 依赖
+        run: |
+          python -m pip install -U pip
+          pip install -r requirements.txt
+
+      - name: 跑回归测试（链接解析 / 自动编号 / GUI 粘贴）
+        run: xvfb-run -a python -X utf8 tests_naming.py

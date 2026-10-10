@@ -1,0 +1,18 @@
+{
+  "url": "",
+  "start": "00:01:00",
+  "end": "00:01:30",
+  "filename": "bilibili_台词拼接",
+  "output_dir": "output",
+  "region_mode": "auto",
+  "top_ratio": null,
+  "bottom_ratio": null,
+  "first_frame_full": true,
+  "separator": true,
+  "crop_horizontal": false,
+  "open_after": true,
+  "cookies_browser": "无",
+  "filename_timestamp": false,
+  "auto_number": true,
+  "keep_cache": false
+}
