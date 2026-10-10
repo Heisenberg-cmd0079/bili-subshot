@@ -15,6 +15,11 @@ B站台词拼接神器 —— 回归测试（链接解析 / 自动编号命名 /
 """
 
 import os
+import importlib.util
+import io
+import contextlib
+from importlib.machinery import SourceFileLoader
+import tkinter as tk
 import re
 import shutil
 import sys
@@ -29,9 +34,12 @@ import numpy as np
 from PIL import Image
 
 FAIL = []
+CHECKS = 0
 
 
 def eq(label, got, want):
+    global CHECKS
+    CHECKS += 1
     ok = got == want
     print(("√ " if ok else "× ") + f"{label}: {got!r}" + ("" if ok else f"  (期望 {want!r})"))
     if not ok:
@@ -116,9 +124,7 @@ def test_build_output_path():
            os.path.basename(sc.build_output_path(tmp, "某标题", auto_number=False)), "某标题.png")
         ts = os.path.basename(sc.build_output_path(tmp, "某标题", timestamp=True, auto_number=True))
         ok = bool(re.match(r"^某标题_\d{2}_\d{8}_\d{6}\.png$", ts))
-        print(("√ " if ok else "× ") + f"时间戳+编号: {ts}")
-        if not ok:
-            FAIL.append("时间戳+编号")
+        eq("时间戳+编号格式", ok, True)
         eq("非法字符前缀", os.path.basename(sc.build_output_path(tmp, "a/b:c", auto_number=True)), "a_b_c_01.png")
         eq("空前缀兜底", os.path.basename(sc.build_output_path(tmp, "", auto_number=True)),
            "bilibili_台词拼接_01.png")
@@ -271,13 +277,80 @@ def test_outline_propagation():
         eq("失败提示说明支持限制", any("暂不支持" in message for message in logs), True)
 
 
+def test_gui_failure_contract():
+    """注入加载/窗口故障，验证失败不会被当成正常跳过。"""
+    global CHECKS
+    print("\n== GUI 失败与跳过契约 ==")
+    module = sys.modules[__name__]
+    def probe(loader, required="0", platform="linux"):
+        global CHECKS
+        before, checks = list(FAIL), CHECKS
+        output = io.StringIO()
+        with patch.object(module, "_load_gui_app", loader), \
+                patch.dict(os.environ, {"ZIMU_REQUIRE_GUI": required}), \
+                patch.object(sys, "platform", platform), contextlib.redirect_stdout(output):
+            test_gui()
+        failed = len(FAIL) > len(before)
+        FAIL[:] = before
+        CHECKS = checks
+        return failed, "跳过 GUI" in output.getvalue()
+    def broken_import():
+        raise ImportError("injected missing module")
+    class BrokenWindow:
+        def App(self):
+            raise RuntimeError("injected initialization bug")
+    class NoDisplay:
+        def App(self):
+            raise tk.TclError("no display name and no $DISPLAY environment variable")
+    eq("模块加载失败必须失败", probe(broken_import), (True, False))
+    eq("普通窗口错误必须失败", probe(lambda: BrokenWindow()), (True, False))
+    eq("仅缺显示环境允许跳过", probe(lambda: NoDisplay()), (False, True))
+    eq("强制GUI时缺显示必须失败", probe(lambda: NoDisplay(), required="1"), (True, False))
+    eq("Windows窗口异常不按Linux缺显示跳过", probe(lambda: NoDisplay(), platform="win32"), (True, False))
+
+
+def _load_gui_app():
+    """按路径加载 .pyw，不依赖平台的源码扩展名注册。"""
+    loader = SourceFileLoader("gui_app", os.path.join(APP_DIR, "gui_app.pyw"))
+    spec = importlib.util.spec_from_loader("gui_app", loader)
+    mod = importlib.util.module_from_spec(spec)
+    previous = sys.modules.get("gui_app")
+    sys.modules["gui_app"] = mod
+    try:
+        loader.exec_module(mod)
+    except Exception:
+        if previous is None:
+            sys.modules.pop("gui_app", None)
+        else:
+            sys.modules["gui_app"] = previous
+        raise
+    return mod
+
+
+def _missing_display(exc):
+    return (sys.platform != "win32" and isinstance(exc, tk.TclError)
+            and any(text in str(exc).lower() for text in (
+                "no display name and no $display environment variable",
+                "couldn't connect to display")))
+
+
 def test_gui():
     print("\n== GUI 粘贴 / 文件名自动跟随 ==")
+    start_checks = CHECKS
+    # 测试进程内永久使用离线桩，后台线程结束前也不会恢复真实网络函数。
+    sc.fetch_video_title = lambda *args, **kwargs: ""
     try:
-        import gui_app
+        gui_app = _load_gui_app()
+    except Exception as e:
+        eq(f"GUI 模块加载失败：{type(e).__name__}: {e}", False, True)
+        return
+    try:
         app = gui_app.App()
-    except Exception as e:                       # 无显示环境 / 缺依赖时跳过
-        print(f"! 跳过 GUI 测试（无法创建窗口：{e}）")
+    except Exception as e:
+        if _missing_display(e) and os.environ.get("ZIMU_REQUIRE_GUI") != "1":
+            print(f"! 跳过 GUI 测试（缺少显示环境：{e}；GUI 执行 0 条检查）")
+        else:
+            eq(f"GUI 窗口创建失败：{type(e).__name__}: {e}", False, True)
         return
     try:
         app.update()
@@ -369,6 +442,9 @@ def test_gui():
         eq("嵌套标题：_collect 前缀完整", cfg2["filename"], NESTED_TITLE)
         eq("嵌套标题：_collect 链接干净", cfg2["url"], NESTED_URL)
     finally:
+        executed = CHECKS - start_checks
+        print(f"GUI 执行了 {executed} 条行为检查（期望 19 条）")
+        eq("GUI 行为检查数量", executed, 19)
         app.destroy()
 
 
@@ -378,6 +454,8 @@ if __name__ == "__main__":
     test_stitch_contract()
     test_text_mask_modes()
     test_outline_propagation()
+    test_gui_failure_contract()
     test_gui()
+    print(f"\n共执行 {CHECKS} 条检查")
     print("\n结果：" + ("全部通过" if not FAIL else f"失败 {len(FAIL)} 项 -> {FAIL}"))
     sys.exit(1 if FAIL else 0)
