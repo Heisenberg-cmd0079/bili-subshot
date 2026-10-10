@@ -175,7 +175,9 @@ GitHub Actions 上也在跑同一套（Ubuntu + xvfb），所以那枚 green 徽
 如果换了片源仍然不行，把视频的时间范围和画面特征（白底？彩色？字幕在中间？）发到 Issues。
 
 **Q：报 ffmpeg 相关错误？**
-见上面「快速开始」里的 ffmpeg 安装表，装完重开程序。
+正常不该出现：ffmpeg 由 `imageio-ffmpeg` 随依赖提供，程序在 PATH 里找不到时会自动用它。
+真报了，先看日志里有没有「PATH 里没有 ffmpeg，改用 imageio-ffmpeg 自带的二进制」这行；
+一键启动脚本在检测到缺 ffmpeg 时也会自动补装。
 
 **Q：缓存占空间？**
 临时视频在系统临时目录的 `zimupinjie` 下，界面点「清理缓存」，或直接删掉那个目录。
