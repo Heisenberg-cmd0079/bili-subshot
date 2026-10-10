@@ -1,13 +1,13 @@
-# B站台词拼接神器
+# 字幕长图 · bili-subshot
 
-> 把一段视频里的台词字幕**自动拼成一张长图**：自动识别字幕区域、按「同一句只留一帧」去重、逐句裁切、纵向拼接。
+> 把 B 站视频里的**硬字幕**自动拼成一张长图：字幕区域自动识别、按「同一句只留一帧」去重、逐句裁切、纵向拼接。
 >
 > Stitch hard-coded subtitles from a video segment into one long image — automatic subtitle-band detection, frame de-duplication, and vertical stitching. (Python + OpenCV + customtkinter)
 
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/license-PolyForm_Noncommercial_1.0.0-orange)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
-[![tests](https://github.com/Heisenberg-cmd0079/bili-hardsub-stitcher/actions/workflows/tests.yml/badge.svg)](https://github.com/Heisenberg-cmd0079/bili-hardsub-stitcher/actions/workflows/tests.yml)
+[![tests](https://github.com/Heisenberg-cmd0079/bili-subshot/actions/workflows/tests.yml/badge.svg)](https://github.com/Heisenberg-cmd0079/bili-subshot/actions/workflows/tests.yml)
 
 ![主界面](docs/images/gui.png)
 
@@ -28,8 +28,8 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/Heisenberg-cmd0079/bili-hardsub-stitcher.git
-cd bili-hardsub-stitcher
+git clone https://github.com/Heisenberg-cmd0079/bili-subshot.git
+cd bili-subshot
 pip install -r requirements.txt
 ```
 

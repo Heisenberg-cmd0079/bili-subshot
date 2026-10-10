@@ -3,7 +3,7 @@
 # Licensed under the PolyForm Noncommercial License 1.0.0 (see LICENSE).
 # 禁止商业使用；需要商业授权请联系作者。
 """
-B站台词拼接神器 —— 图形界面
+字幕长图（bili-subshot） —— 图形界面
 
 相比旧版：
     * 网址栏可直接粘贴 B 站客户端复制的整段内容（【标题】+ 链接）：
@@ -78,7 +78,7 @@ class App(ctk.CTk):
         self._icon_photo = None
         _claim_taskbar_identity()
 
-        self.title("B站台词拼接神器")
+        self.title("字幕长图")
         self.configure(fg_color="#F5F5F7")
         self._set_window_icon(self)
 
