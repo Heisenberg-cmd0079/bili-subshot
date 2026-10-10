@@ -29,3 +29,6 @@ output/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ---- 评审请求（仅自用，不入库）----
+/评审请求.md
