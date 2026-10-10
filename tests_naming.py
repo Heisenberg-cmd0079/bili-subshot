@@ -19,6 +19,7 @@ import re
 import shutil
 import sys
 import tempfile
+from unittest.mock import patch
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, APP_DIR)
@@ -168,6 +169,108 @@ def test_stitch_contract():
     eq("无文字时返回完整半开范围", sc._detect_text_xrange([], 1, 300), (0, 300))
 
 
+def test_text_mask_modes():
+    print("\n== text_mask_modes ==")
+    dark = np.full((120, 300, 3), 30, dtype=np.uint8)
+    dark[70:94, 98:116] = 5
+    dark[72:92, 100:114] = 245
+    eq("白字黑边保留原有行为", bool(sc.text_mask(dark, outline="dark").any()), True)
+    bright = np.full((120, 300, 3), 195, dtype=np.uint8)
+    bright[72:92, 100:114] = 245
+    eq("亮底不存在暗像素", bool((bright < sc.DARK_V).any()), False)
+    eq("亮底严格描边模式为空", int(sc.text_mask(bright, outline="dark").sum()), 0)
+    loose = sc.text_mask(bright, outline="none")
+    eq("亮底无描边模式非空", bool(loose.any()), True)
+    eq("无描边掩码覆盖字块", bool(loose[72:92, 100:114].all()), True)
+    eq("亮背景不被当成整片文字", int(loose.sum()), 280)
+    plain = np.full((120, 300, 3), 245, dtype=np.uint8)
+    eq("纯白底被字形过滤挡掉", int(sc.text_mask(plain, outline="none", glyph_filter=True).sum()), 0)
+    eq("关闭字形过滤会保留全部白色", int(sc.text_mask(plain, outline="none", glyph_filter=False).sum()), 36000)
+    eq("refine兼容别名", np.array_equal(sc.text_mask(dark, refine=False), sc.text_mask(dark, glyph_filter=False)), True)
+    mid = np.full((120, 300, 3), 120, dtype=np.uint8)
+    mid[72:92, 100:114] = 245
+    eq("无描边模式也保留孤立白字", int(sc.text_mask(mid, outline="none").sum()), 280)
+    eq("底部兜底有明确策略", sc._bottom_fallback(120, 300)["outline"], "dark")
+    eq("底部兜底保留降级策略", sc._bottom_fallback(120, 300, outline="none")["outline"], "none")
+    try:
+        sc.text_mask(mid, outline="invalid")
+    except ValueError:
+        rejected = True
+    else:
+        rejected = False
+    eq("未知描边策略拒绝使用", rejected, True)
+
+
+class _SyntheticCapture:
+    """只从内存合成图取帧，不访问视频文件或编解码器。"""
+    def __init__(self, frame, count=50):
+        self.frame = frame
+        self.count = count
+        self.index = -1
+        self.released = False
+
+    def isOpened(self):
+        return True
+
+    def get(self, prop):
+        return {sc.cv2.CAP_PROP_FPS: 25.0,
+                sc.cv2.CAP_PROP_FRAME_COUNT: self.count,
+                sc.cv2.CAP_PROP_FRAME_WIDTH: self.frame.shape[1],
+                sc.cv2.CAP_PROP_FRAME_HEIGHT: self.frame.shape[0]}[prop]
+
+    def grab(self):
+        self.index += 1
+        return self.index < self.count
+
+    def retrieve(self):
+        return True, self.frame.copy()
+
+    def release(self):
+        self.released = True
+
+
+def test_outline_propagation():
+    print("\n== outline_propagation（内存合成帧） ==")
+    bright = np.full((120, 300, 3), 195, dtype=np.uint8)
+    bright[72:92, 100:114] = 245
+    captures = []
+    def capture(_path):
+        cap = _SyntheticCapture(bright)
+        captures.append(cap)
+        return cap
+    with patch.object(sc.cv2, "VideoCapture", side_effect=capture):
+        with patch.object(sc, "text_mask", wraps=sc.text_mask) as masks:
+            region = sc.detect_subtitle_region("memory-only", log=lambda *_: None)
+            eq("自动检测保存无描边策略", region["outline"], "none")
+            detection_calls = len(masks.call_args_list)
+            frames, times, crop = sc.extract_subtitle_frames(
+                "memory-only", region["text_y1"], region["text_y2"],
+                crop_y1=region["y1"], crop_y2=region["y2"], outline=region["outline"],
+                crop_horizontal=True, log=lambda *_: None)
+        eq("两轮抽帧均完成并保留字幕", (len(frames), len(times)), (1, 1))
+        eq("两轮抽帧同宽裁切", frames[0].width, crop[2] - crop[0])
+        # 最后一次检测调用之后的所有掩码调用均属于两轮抽帧。
+        extract_calls = masks.call_args_list[detection_calls:]
+        eq("抽帧含两轮掩码计算", len(extract_calls) > 8, True)
+        eq("两轮掩码沿用无描边策略", all(c.kwargs.get("outline") == "none" for c in extract_calls), True)
+        eq("两轮掩码保持字形过滤", all(c.kwargs.get("glyph_filter") is True for c in extract_calls), True)
+        info = dict(height=120, width=300, fps=25.0, duration=2.0)
+        eq("手动区域选择无描边策略", sc._select_manual_outline("memory-only", 60, 105, info, log=lambda *_: None), "none")
+    eq("合成捕获器全部释放", all(c.released for c in captures), True)
+    dark = np.full((120, 300, 3), 30, dtype=np.uint8)
+    dark[70:94, 98:116] = 5
+    dark[72:92, 100:114] = 245
+    with patch.object(sc.cv2, "VideoCapture", side_effect=lambda *_: _SyntheticCapture(dark)):
+        region = sc.detect_subtitle_region("memory-only", log=lambda *_: None)
+        eq("自动检测优先保留描边策略", region["outline"], "dark")
+        eq("手动区域优先保留描边策略", sc._select_manual_outline("memory-only", 60, 105, info, log=lambda *_: None), "dark")
+    with patch.object(sc.cv2, "VideoCapture", side_effect=lambda *_: _SyntheticCapture(np.full_like(bright, 245))):
+        logs = []
+        region = sc.detect_subtitle_region("memory-only", log=logs.append)
+        eq("两种判据失败仍保留降级策略", (region["fallback"], region["outline"]), (True, "none"))
+        eq("失败提示说明支持限制", any("暂不支持" in message for message in logs), True)
+
+
 def test_gui():
     print("\n== GUI 粘贴 / 文件名自动跟随 ==")
     try:
@@ -273,6 +376,8 @@ if __name__ == "__main__":
     test_parse_link_input()
     test_build_output_path()
     test_stitch_contract()
+    test_text_mask_modes()
+    test_outline_propagation()
     test_gui()
     print("\n结果：" + ("全部通过" if not FAIL else f"失败 {len(FAIL)} 项 -> {FAIL}"))
     sys.exit(1 if FAIL else 0)

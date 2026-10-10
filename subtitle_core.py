@@ -329,31 +329,10 @@ def _glyph_limits(h):
             max(12, int(round(25 * k * k))))
 
 
-def text_mask(roi_bgr: np.ndarray, limits=None, refine: bool = True) -> np.ndarray:
-    """
-    字幕字形掩码（bool 数组）。
-
-    旧版只取「白色像素」，遇到漫画 / 白底 / 亮色画面时，背景会被整片当成文字，
-    于是同一句字幕在相邻帧之间“看起来完全不同”，被拆成好几句（重复），
-    检测出的字幕区域也会覆盖大半个画面（截断）。
-
-    这里改为三重判据：
-        1. 白字：亮度高、饱和度低；
-        2. 黑描边：该像素附近有黑边（硬字幕的白字外面都描了一圈黑边）；
-        3. 尺寸像字：连通块高宽、面积、填充率落在“文字”范围内
-           （整片白底、色块、长条 UI 会被这一条挡掉）。
-    """
-    hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
-    v, s = hsv[:, :, 2], hsv[:, :, 1]
-    white = (v > WHITE_V) & (s < WHITE_S)
-    dark = (v < DARK_V).astype(np.uint8)
-    near_dark = cv2.dilate(dark, _kernel3(), iterations=OUTLINE_ITER).astype(bool)
-    g = (white & near_dark).astype(np.uint8)
-    if not refine:
-        return g.astype(bool)
-
-    min_h, max_h, min_w, max_w, min_area = limits or _glyph_limits(roi_bgr.shape[0])
-    n, lab, stats, _cent = cv2.connectedComponentsWithStats(g, 8)
+def _filter_glyphs(g, limits):
+    """按字形尺寸/面积/填充率过滤二值候选，不改变描边策略。"""
+    min_h, max_h, min_w, max_w, min_area = limits
+    n, lab, stats, _cent = cv2.connectedComponentsWithStats(g.astype(np.uint8), 8)
     if n <= 1:
         return g.astype(bool)
     keep = np.zeros(n, dtype=np.uint8)
@@ -363,6 +342,45 @@ def text_mask(roi_bgr: np.ndarray, limits=None, refine: bool = True) -> np.ndarr
                 and area / float(ww * hh) > GLYPH_FILL:
             keep[i] = 1
     return keep[lab].astype(bool)
+
+
+def text_mask(roi_bgr: np.ndarray, limits=None, refine=None, *,
+              outline="dark", glyph_filter=True) -> np.ndarray:
+    """字幕字形 bool 掩码。描边要求与字形过滤分别控制。
+
+    outline="dark"：白色像素附近必须有暗像素，默认行为保持不变。
+    outline="none"：不要求暗邻域，但仍用字形尺寸过滤挡住整片亮背景。
+    若白色候选连成背景且过滤后为空，用局部亮度对比分离较亮白字，
+    再执行相同字形过滤；这不能保证识别低对比白字或彩色字幕。
+    glyph_filter=False：返回未做字形过滤的候选；refine 为兼容别名。
+    """
+    if outline not in ("dark", "none"):
+        raise ValueError(f"未知描边策略：{outline!r}")
+    if refine is not None:
+        glyph_filter = bool(refine)
+    hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+    v, s = hsv[:, :, 2], hsv[:, :, 1]
+    white = (v > WHITE_V) & (s < WHITE_S)
+    if outline == "dark":
+        dark = (v < DARK_V).astype(np.uint8)
+        near_dark = cv2.dilate(dark, _kernel3(), iterations=OUTLINE_ITER).astype(bool)
+        g = white & near_dark
+    else:
+        g = white
+    if not glyph_filter:
+        return g
+    limits = limits or _glyph_limits(roi_bgr.shape[0])
+    filtered = _filter_glyphs(g, limits)
+    if outline == "none" and not filtered.any() and white.any():
+        # 开运算核大于允许的字形，移除局部较亮字块以估计亮背景。
+        # 195 背景也通过 WHITE_V，直接连通块过滤无法把 245 白字分出来。
+        max_h, max_w = limits[1], limits[3]
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT,
+                                          (max_w + 1, max_h + 1))
+        background = cv2.morphologyEx(v, cv2.MORPH_OPEN, kernel)
+        contrast = cv2.subtract(v, background)
+        filtered = _filter_glyphs(white & (contrast >= 20), limits)
+    return filtered
 
 
 def _runs_of(flags, gap=0, min_len=1):
@@ -468,21 +486,21 @@ def download_segment(url, start_time, end_time, work_dir, log=print, cookies_bro
 # 2. 字幕区域识别
 # --------------------------------------------------------------------------
 
-def _bottom_fallback(h, w):
+def _bottom_fallback(h, w, outline="dark"):
     """识别失败时的兜底区域：画面底部 14%。"""
     y2 = h
     y1 = h - int(h * 0.14)
     return dict(height=h, width=w, text_y1=y1, text_y2=y2, y1=y1, y2=y2,
-                top_ratio=y1 / h, bottom_ratio=y2 / h, coverage=0.0, fallback=True)
+                top_ratio=y1 / h, bottom_ratio=y2 / h, coverage=0.0, fallback=True, outline=outline)
 
 
-def _row_density_profile(video_path, y0, h, fps, times, limits, refine):
-    """逐帧统计“字形行密度”，返回 [(zone_h,), ...]。refine=False 时只看白色像素。"""
+def _row_density_profile(video_path, y0, h, fps, times, limits, outline="dark"):
+    """按指定描边策略统计行密度，两种策略都保留字形过滤。"""
     cap = cv2.VideoCapture(video_path)
     rows = []
     try:
         for _t, frame in _sample_frames(cap, fps, times):
-            m = text_mask(frame[y0:h], limits=limits, refine=refine)
+            m = text_mask(frame[y0:h], limits=limits, outline=outline, glyph_filter=True)
             rows.append(m.sum(axis=1).astype(np.float32))
     finally:
         cap.release()
@@ -503,7 +521,7 @@ def detect_subtitle_region(video_path, log=print, search_bottom_ratio=SEARCH_BOT
          包含进来，不会只留下面一行。
 
     返回 dict：height / width / text_y1 / text_y2 / y1 / y2 / top_ratio / bottom_ratio
-              / coverage / fallback
+              / coverage / fallback / outline
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -527,7 +545,8 @@ def detect_subtitle_region(video_path, log=print, search_bottom_ratio=SEARCH_BOT
 
     log(f"· 正在识别字幕区域（{h}p，采样 {DETECT_SAMPLE_COUNT} 帧）…")
     times = np.linspace(0.15, max(0.2, dur - 0.1), DETECT_SAMPLE_COUNT)
-    dens_rows = _row_density_profile(video_path, y0, h, fps, times, limits, True)
+    outline = "dark"
+    dens_rows = _row_density_profile(video_path, y0, h, fps, times, limits, outline)
     if not dens_rows:
         log("! 未能识别到字幕文字，回退到画面底部默认区域")
         return _bottom_fallback(h, w)
@@ -536,16 +555,18 @@ def detect_subtitle_region(video_path, log=print, search_bottom_ratio=SEARCH_BOT
     exist = (dens_map > row_thr).mean(axis=0)             # 该行“有字形”的帧占比
     emax = float(exist.max())
     if emax < 0.20:
-        # 兼容没有黑描边的字幕：退回「只看白色像素」的老判据再试一次
-        log("! 未检测到「白字 + 黑描边」的字幕，改用普通白色文字判据重试…")
-        dens_rows = _row_density_profile(video_path, y0, h, fps, times, limits, False)
+        outline = "none"
+        log("! 未检测到稳定的白字描边字幕，已改用无描边白字判据重试（保留字形过滤，必要时分离亮背景）…")
+        dens_rows = _row_density_profile(video_path, y0, h, fps, times, limits, outline)
         if dens_rows:
             dens_map = np.array(dens_rows, dtype=np.float32)
             exist = (dens_map > row_thr).mean(axis=0)
             emax = float(exist.max())
     if emax < 0.15:
-        log("! 未检测到稳定的字幕字形，回退到画面底部默认区域")
-        return _bottom_fallback(h, w)
+        log("! 两种判据均未检测到稳定字形，回退到画面底部区域；"
+            "该字幕样式（低对比白字无描边 / 彩色字幕）可能暂不支持，"
+            "请确认字幕确实在所选区间内，或换用白字黑边字幕素材")
+        return _bottom_fallback(h, w, outline=outline)
     frames_n = dens_map.shape[0]
 
     # ---- 种子行段：存在率高（字幕行几乎每帧都有字）的连续行 ----
@@ -561,7 +582,7 @@ def detect_subtitle_region(video_path, log=print, search_bottom_ratio=SEARCH_BOT
     seeds = _runs_of(exist >= max(0.20, 0.45 * emax), gap=6, min_len=5)
     if not seeds:
         log("! 未找到稳定的字幕行，回退到画面底部默认区域")
-        return _bottom_fallback(h, w)
+        return _bottom_fallback(h, w, outline=outline)
 
     def seed_score(seg):
         a, b = seg
@@ -625,7 +646,19 @@ def detect_subtitle_region(video_path, log=print, search_bottom_ratio=SEARCH_BOT
         f"自适应留白 {pad}px → 裁切 {cy1} ~ {cy2}")
 
     return dict(height=h, width=w, text_y1=y1, text_y2=y2, y1=cy1, y2=cy2,
-                top_ratio=cy1 / h, bottom_ratio=cy2 / h, coverage=cov, fallback=False)
+                top_ratio=cy1 / h, bottom_ratio=cy2 / h, coverage=cov, fallback=False, outline=outline)
+
+
+def _select_manual_outline(video_path, y1, y2, info, log=print):
+    """手动框选只限定区域，仍需选择且保留该区域适用的描边策略。"""
+    times = np.linspace(0.15, max(0.2, info["duration"] - 0.1), DETECT_SAMPLE_COUNT)
+    rows = _row_density_profile(video_path, y1, y2, info["fps"], times,
+                                _glyph_limits(info["height"]), outline="dark")
+    row_thr = max(10.0, 0.012 * info["width"])
+    if rows and float((np.array(rows) > row_thr).mean(axis=0).max()) >= 0.20:
+        return "dark"
+    log("· 手动区域未检测到稳定的描边白字，已改用无描边白字判据（保留字形过滤）")
+    return "none"
 
 
 def probe_video(video_path):
@@ -743,13 +776,14 @@ def _grow_text_rows(dens, a, b, frac=0.25):
 
 def extract_subtitle_frames(video_path, band_y1, band_y2, crop_y1=None, crop_y2=None,
                             log=print, step=DENSE_STEP, crop_horizontal=False,
-                            allow_expand=True):
+                            allow_expand=True, outline="dark"):
     """
     高频采样 → 只比较字幕文字行内的白色字形掩码 → 按“一句字幕”分组 →
     每组取最完整的一帧 → 再按所有保留帧的实际文字行范围确定最终裁切（保证不截断）。
 
     band_y1/band_y2 : 检测到的“文字行”范围（用于比较与去重）
     crop_y1/crop_y2 : 最终显示的裁切范围；缺省 = 文字行 ± 按字高推算的留白
+    outline : 检测阶段选定的描边策略，两轮抽帧都保持字形过滤。
     返回 (frames, times, crop)；frames 为 PIL 图像（已裁切）。
     """
     cap = cv2.VideoCapture(video_path)
@@ -785,7 +819,7 @@ def extract_subtitle_frames(video_path, band_y1, band_y2, crop_y1=None, crop_y2=
 
     recs = []      # (t, 字形像素数, packbits 掩码, 掩码形状)；掩码只取“文字带”内的行
     for t, frame in _sample_frames(cap, fps, times):
-        m = text_mask(frame[gy1:gy2], limits=limits)[b0:b1]
+        m = text_mask(frame[gy1:gy2], limits=limits, outline=outline, glyph_filter=True)[b0:b1]
         recs.append((float(t), int(m.sum()), np.packbits(m, axis=1), m.shape))
     cap.release()
     if not recs:
@@ -861,7 +895,8 @@ def extract_subtitle_frames(video_path, band_y1, band_y2, crop_y1=None, crop_y2=
         merged = keep
 
     if not merged:
-        raise RuntimeError("去重后没有剩余字幕帧，请检查时间区间或字幕区域")
+        raise RuntimeError("去重后没有剩余字幕帧，请先确认时间区间和字幕区域；"
+                           "低对比白字无描边 / 彩色字幕可能暂不支持，请换用白字黑边字幕素材")
 
     # ---- 单次顺序解码：每组在其代表时间附近挑字形最完整的一帧 ----
     # 分析区域 gy1/gy2 已在前面按「字幕带 + 裁切范围」确定，这里不再重新缩小
@@ -887,7 +922,7 @@ def extract_subtitle_frames(video_path, band_y1, band_y2, crop_y1=None, crop_y2=
             if ok:
                 g = merged[gi]
                 roi = frame[gy1:gy2].copy()
-                mfull = text_mask(roi, limits=limits)
+                mfull = text_mask(roi, limits=limits, outline=outline, glyph_filter=True)
                 m = mfull[b0:b1]                            # 只看文字行
                 dens = mfull.sum(axis=1).astype(np.float32)  # 行像素量（用于向上/下生长）
                 cnt = int(m.sum())
@@ -950,7 +985,8 @@ def extract_subtitle_frames(video_path, band_y1, band_y2, crop_y1=None, crop_y2=
         kept_times.append(round(r["t"], 2))
 
     if not frames:
-        raise RuntimeError("去重后没有剩余字幕帧，请检查时间区间或字幕区域")
+        raise RuntimeError("去重后没有剩余字幕帧，请先确认时间区间和字幕区域；"
+                           "低对比白字无描边 / 彩色字幕可能暂不支持，请换用白字黑边字幕素材")
     return frames, kept_times, (cx1, cy1, cx2, cy2)
 
 
@@ -1054,7 +1090,8 @@ def run_pipeline(cfg, log=print, progress=None):
         y1, y2 = max(0, min(y1, h - 8)), max(y1 + 8, min(y2, h))
         log(f"· 使用手动指定字幕区域：y = {y1} ~ {y2}")
         region = dict(y1=y1, y2=y2, text_y1=y1, text_y2=y2, fallback=False,
-                      coverage=None, top_ratio=y1 / h, bottom_ratio=y2 / h, manual=True)
+                      coverage=None, top_ratio=y1 / h, bottom_ratio=y2 / h, manual=True,
+                      outline=_select_manual_outline(video_path, y1, y2, info, log=log))
     else:
         region = detect_subtitle_region(video_path, log=log)
     if progress:
@@ -1066,7 +1103,7 @@ def run_pipeline(cfg, log=print, progress=None):
         video_path, band_y1, band_y2,
         crop_y1=region["y1"], crop_y2=region["y2"],
         log=log, crop_horizontal=bool(cfg.get("crop_horizontal")),
-        allow_expand=not region.get("manual", False))
+        allow_expand=not region.get("manual", False), outline=region["outline"])
     region["final_crop"] = crop
     if progress:
         progress(0.85)
