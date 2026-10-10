@@ -465,30 +465,6 @@ def download_segment(url, start_time, end_time, work_dir, log=print, cookies_bro
 # 2. 字幕区域识别
 # --------------------------------------------------------------------------
 
-def detect_subtitle_region(video_path, log=print, search_bottom_ratio=SEARCH_BOTTOM_RATIO):
-    """
-    多帧统计识别硬字幕所在的水平条带。
-
-    原理：字幕文字行在几乎所有帧里都有大量白色像素，而画面里的其它白色元素
-    （UI 文字、图标、高光）在时间上不稳定。于是对采样帧逐行统计
-    「该行是否存在足量白色文字像素」的覆盖率，覆盖率最高的连续行段就是字幕条带。
-
-    返回 dict：height / width / text_y1 / text_y2 / y1 / y2 / top_ratio / bottom_ratio
-              / coverage / fallback
-    """
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise RuntimeError("无法打开视频文件")
-
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    dur = total / fps if fps > 0 else 0.0
-    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    if dur <= 0.3:
-        cap.release()
-        raise RuntimeError("视频片段过短，无法识别字幕区域")
-
 def _bottom_fallback(h, w):
     """识别失败时的兜底区域：画面底部 14%。"""
     y2 = h
