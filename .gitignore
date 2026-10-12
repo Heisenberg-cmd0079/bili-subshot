@@ -33,3 +33,8 @@ desktop.ini
 # 一键启动.bat 装出来的东西（都是本机环境，不该进仓库）
 .venv/
 .tools/
+
+# 本地界面修改备份（不随发布提交）
+gui_app.*.pyw.bak
+# 本机快捷方式避开 Windows 旧图标缓存的副本
+/assets/icon-transparent.ico

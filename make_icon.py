@@ -43,7 +43,9 @@ def punch_out_background(im):
     rgb = im.convert("RGB")
     a = np.asarray(rgb).astype(np.int16)
     near_white = (a >= WHITE_MIN).all(axis=2)
-    mask = Image.fromarray(np.where(near_white, 255, 0).astype(np.uint8), "L")
+    # fromarray may return a read-only image. floodfill silently returns when
+    # its first write raises ValueError, leaving the white corners intact.
+    mask = Image.fromarray(np.where(near_white, 255, 0).astype(np.uint8), "L").copy()
     # 从四角灌水，只有连通到边缘的白才会被标记
     for corner in ((0, 0), (rgb.width - 1, 0), (0, rgb.height - 1), (rgb.width - 1, rgb.height - 1)):
         if mask.getpixel(corner) == 255:
@@ -56,14 +58,14 @@ def punch_out_background(im):
 
 
 def square_with_padding(im, size=MASTER):
-    """等比缩放并贴到正方形透明画布中央，四周留一点白边。"""
+    """等比缩放并贴到正方形透明画布中央，四周保留透明边距。"""
     pad = int(round(size * PAD_RATIO))
     inner = size - pad * 2
     w, h = im.size
     scale = min(inner / w, inner / h)
     new = im.resize((max(1, int(round(w * scale))), max(1, int(round(h * scale)))), Image.LANCZOS)
     canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    canvas.paste(new, ((size - new.width) // 2, (size - new.height) // 2), new)
+    canvas.alpha_composite(new, ((size - new.width) // 2, (size - new.height) // 2))
     return canvas
 
 
