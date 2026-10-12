@@ -29,3 +29,6 @@ jobs:
 
       - name: 跑界面适配测试（分辨率 / DPI / 窄窗口重排）
         run: xvfb-run -a python -X utf8 tests_ui_layout.py
+
+      - name: 跑字幕去重测试（背景变化 / 单字变化 / 时间间隔）
+        run: python -X utf8 tests_dedup.py

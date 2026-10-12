@@ -727,6 +727,40 @@ def _same_text(m1, m2, iou_thr=SIM_IOU, cont_thr=SIM_CONTAIN):
     return iou >= iou_thr or contain >= cont_thr
 
 
+def _comparison_mask(roi_bgr, glyph_mask):
+    """去重比较保留白字主体，不再仅保留靠近黑描边的碎片。
+
+    区域检测、无字幕判断、代表帧评分仍使用原有字形掩码。比较掩码
+    采用更严格的白色阈值，避免灰色背景与白字连接；低亮度字幕回退。
+    """
+    if not glyph_mask.any():
+        return glyph_mask
+    hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+    white = (hsv[:, :, 2] > 220) & (hsv[:, :, 1] < 45)
+    if int(white.sum()) < 60 or _glyph_count(white) == 0:
+        return glyph_mask
+    return white
+
+
+def _same_subtitle(m1, m2):
+    """整体相似之外检查局部字形，防止长句只变一个字仍被包含度合并。
+
+    局部用包含度容忍亮背景中额外的白像素；滑动窗口约一个字宽，
+    空白及稀疏噪点不参与。不同台词必须同时通过整体和局部比较。
+    """
+    if not _same_text(m1, m2):
+        return False
+    width = max(12, m1.shape[0])
+    stride = max(1, width // 2)
+    min_px = max(12, int(width * width * 0.032))
+    for x in range(0, m1.shape[1], stride):
+        a, b = m1[:, x:x + width], m2[:, x:x + width]
+        count = min(int(a.sum()), int(b.sum()))
+        if count >= min_px and int(np.logical_and(a, b).sum()) / count < 0.84:
+            return False
+    return True
+
+
 def _glyph_count(mask):
     """
     统计掩码里“像文字”的连通块数量（一整块 UI 亮条/图标的块会被 ww 上限挡掉）。
@@ -841,9 +875,16 @@ def extract_subtitle_frames(video_path, band_y1, band_y2, crop_y1=None, crop_y2=
     log(f"· 正在抽帧分析（每 {step}s 一帧，共约 {len(times)} 帧）…")
 
     recs = []      # (t, 字形像素数, packbits 掩码, 掩码形状)；掩码只取“文字带”内的行
+    range_recs = []  # 横向裁切仍使用原有过滤后的字形，不受比较掩码中的背景白色影响
     for t, frame in _sample_frames(cap, fps, times):
-        m = text_mask(frame[gy1:gy2], limits=limits, outline=outline, glyph_filter=True)[b0:b1]
-        recs.append((float(t), int(m.sum()), np.packbits(m, axis=1), m.shape))
+        roi = frame[gy1:gy2]
+        glyphs = text_mask(roi, limits=limits, outline=outline, glyph_filter=True)
+        m = _comparison_mask(roi[b0:b1], glyphs[b0:b1])
+        recs.append((float(t), int(glyphs[b0:b1].sum()), np.packbits(m, axis=1), m.shape))
+        if crop_horizontal:
+            glyph_band = glyphs[b0:b1]
+            range_recs.append((float(t), int(glyph_band.sum()),
+                               np.packbits(glyph_band, axis=1), glyph_band.shape))
     cap.release()
     if not recs:
         raise RuntimeError("未能从视频中抽取到任何画面")
@@ -853,7 +894,7 @@ def extract_subtitle_frames(video_path, band_y1, band_y2, crop_y1=None, crop_y2=
     min_px = max(120, int(0.12 * ref))         # 低于此字形像素数视为“这一帧没有字幕”
 
     # 横向文字范围（仅在需要横向裁切时使用；去重比较用整行，实测更稳）
-    xa, xb = _detect_text_xrange(recs, min_px, w)
+    xa, xb = _detect_text_xrange(range_recs, min_px, w)
     if crop_horizontal and xb - xa < w * 0.98:
         log(f"· 字幕横向范围 x = {xa} ~ {xb}")
 
@@ -865,7 +906,6 @@ def extract_subtitle_frames(video_path, band_y1, band_y2, crop_y1=None, crop_y2=
     holes = 0                                     # 当前组之后连续“没有字幕”的帧数
     for t, cnt, packed, shape in recs:
         m = np.unpackbits(packed, axis=1)[:, :shape[1]].astype(bool)
-        cnt = int(m.sum())
         if cnt < min_px:
             if cur is not None:
                 cur["t1"] = t
@@ -878,7 +918,7 @@ def extract_subtitle_frames(video_path, band_y1, band_y2, crop_y1=None, crop_y2=
             cur = dict(t0=t, t1=t, best_t=t, best_cnt=cnt, mask=m.copy())
             lookback, holes = [m.copy()], 0
             continue
-        if any(_same_text(prev, m) for prev in lookback[-3:]):
+        if any(_same_subtitle(prev, m) for prev in lookback[-3:]):
             cur["t1"] = t
             holes = 0
             if cnt > cur["best_cnt"]:
@@ -896,7 +936,7 @@ def extract_subtitle_frames(video_path, band_y1, band_y2, crop_y1=None, crop_y2=
     # ---- 合并“同一句字幕被短暂打断 / 位移”造成的多个分组 ----
     merged = []
     for g in groups:
-        if merged and _same_text(merged[-1]["mask"], g["mask"]) \
+        if merged and _same_subtitle(merged[-1]["mask"], g["mask"]) \
                 and g["t0"] - merged[-1]["t1"] <= REPEAT_GAP:
             merged[-1]["t1"] = g["t1"]
             if g["best_cnt"] > merged[-1]["best_cnt"]:
@@ -946,12 +986,12 @@ def extract_subtitle_frames(video_path, band_y1, band_y2, crop_y1=None, crop_y2=
                 g = merged[gi]
                 roi = frame[gy1:gy2].copy()
                 mfull = text_mask(roi, limits=limits, outline=outline, glyph_filter=True)
-                m = mfull[b0:b1]                            # 只看文字行
+                m = _comparison_mask(roi[b0:b1], mfull[b0:b1])  # 只看文字行
                 dens = mfull.sum(axis=1).astype(np.float32)  # 行像素量（用于向上/下生长）
-                cnt = int(m.sum())
+                cnt = int(mfull[b0:b1].sum())
                 cand = dict(cnt=cnt, roi=roi, top=None, bot=None, t=idx / fps, mask=m)
                 # 必须和该组的代表文字一致，避免把上一句的帧当成这一句
-                if _same_text(g["mask"], m):
+                if _same_subtitle(g["mask"], m):
                     rec = best[gi]
                     if rec is None or cnt > rec["cnt"]:
                         top, bot = _grow_text_rows(dens, b0, b1)
