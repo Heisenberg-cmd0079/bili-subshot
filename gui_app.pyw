@@ -259,6 +259,15 @@ class App(ctk.CTk):
         key = (kind, size)
         if key in self._ui_icons:
             return self._ui_icons[key]
+        if kind == "app":
+            try:
+                with Image.open(self.icon_png) as source:
+                    im = source.convert("RGBA")
+                icon = ctk.CTkImage(light_image=im, dark_image=im, size=(size, size))
+                self._ui_icons[key] = icon
+                return icon
+            except (OSError, ValueError):
+                pass  # 图标缺失或损坏时，保留下面的绘制兜底。
         im = Image.new("RGBA", (96, 96), (0, 0, 0, 0))
         draw = ImageDraw.Draw(im)
         ink = "#263346"
