@@ -47,6 +47,34 @@ class DedupTests(unittest.TestCase):
             frames += [f]*25
         result,_,_=self.extract(frames)
         self.assertEqual(len(result),2)
+
+    @unittest.skipUnless(os.environ.get('ZIMU_DEDUP_NEW_PNG'), 'Set ZIMU_DEDUP_NEW_PNG to the 2026-10-13 original long PNG')
+    def test_real_moving_bright_diagonal(self):
+        im=np.array(Image.open(os.environ['ZIMU_DEDUP_NEW_PNG']).convert('RGB'))
+        sequence=[]
+        for i in range(9):
+            f=np.zeros((1080,1920,3),np.uint8)
+            f[980:1052]=cv2.cvtColor(im[1054+i*74:1126+i*74],cv2.COLOR_RGB2BGR)
+            sequence += [f]*25
+        for outline in ['dark','none']:
+            for lo,hi in [(0,72),(10,60),(15,58)]:
+                with self.subTest(outline=outline,band=(lo,hi)):
+                    with patch.object(sc.cv2,'VideoCapture',side_effect=lambda _:Frames(sequence)):
+                        frames,times,crop=sc.extract_subtitle_frames('memory',980+lo,980+hi,
+                            crop_y1=980,crop_y2=1052,allow_expand=False,outline=outline,log=lambda _:None)
+                    self.assertEqual(len(frames),6)
+                    self.assertEqual(len(times),6)
+
+    def test_moving_background_does_not_change_subtitle(self):
+        sequence=[]
+        for shift in [0,8,16]:
+            f=np.full((151,700,3),70,np.uint8)
+            cv2.fillPoly(f,[np.array([[100+shift,0],[140+shift,0],[490+shift,151],[450+shift,151]],np.int32)],(245,245,245))
+            cv2.putText(f,'HELLO WORLD',(10,99),cv2.FONT_HERSHEY_SIMPLEX,1.2,(0,0,0),5)
+            cv2.putText(f,'HELLO WORLD',(10,99),cv2.FONT_HERSHEY_SIMPLEX,1.2,(245,245,245),2)
+            sequence += [f]*25
+        result,_,_=self.extract(sequence)
+        self.assertEqual(len(result),1)
     def test_later_repeat_is_preserved(self):
         f=np.full((151,700,3),70,np.uint8)
         cv2.putText(f,'HELLO',(20,99),cv2.FONT_HERSHEY_SIMPLEX,1.2,(0,0,0),5)

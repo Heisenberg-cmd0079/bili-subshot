@@ -751,10 +751,22 @@ def _same_subtitle(m1, m2):
     if not _same_text(m1, m2):
         return False
     width = max(12, m1.shape[0])
+    # 大片浅色背景会跨过字间空白，不能把其运动当成字形变化。
+    # 仅在双方都可靠的像素区域检查局部差异；保留原始掩码做整体比较，
+    # 防止白字与亮背景连接后被连通块过滤整字删除。
+    limits = (max(3, width // 8), width, 2, max(40, int(width * 2.6)),
+              max(8, int(width * width * 0.01)))
+    clean1, clean2 = _filter_glyphs(m1, limits), _filter_glyphs(m2, limits)
+    reliable = ~(m1 & ~clean1) & ~(m2 & ~clean2)
+    local1, local2 = m1 & reliable, m2 & reliable
     stride = max(1, width // 2)
     min_px = max(12, int(width * width * 0.032))
     for x in range(0, m1.shape[1], stride):
         a, b = m1[:, x:x + width], m2[:, x:x + width]
+        count = min(int(a.sum()), int(b.sum()))
+        if count < min_px or int(np.logical_and(a, b).sum()) / count >= 0.84:
+            continue
+        a, b = local1[:, x:x + width], local2[:, x:x + width]
         count = min(int(a.sum()), int(b.sum()))
         if count >= min_px and int(np.logical_and(a, b).sum()) / count < 0.84:
             return False
